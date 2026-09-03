@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bảng vàng & Biểu đồ kỹ thuật</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #d1d4dc; }
+  .topbar { display: flex; align-items: center; gap: 4px; padding: 10px 16px; background: #1a1e2b; border-bottom: 1px solid #2a2e39; }
+  .tab-btn { background: transparent; border: none; color: #9598a1; padding: 10px 18px; font-size: 14px; cursor: pointer; border-bottom: 2px solid transparent; }
+  .tab-btn.active { color: #fff; border-bottom-color: #2962ff; }
+  .tab-content { display: none; padding: 16px; }
+  .tab-content.active { display: block; }
+
+  /* Radar tab */
+  .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-bottom: 16px; background: #1a1e2b; padding: 12px 16px; border-radius: 8px; }
+  .filter-group { display: flex; flex-direction: column; gap: 4px; }
+  .filter-group label { font-size: 11px; color: #9598a1; }
+  .filter-group select, .filter-group input { background: #0f1117; border: 1px solid #2a2e39; color: #d1d4dc; padding: 6px 10px; border-radius: 4px; font-size: 13px; }
+  .scan-btn { background: #f0a020; color: #2a1a00; border: none; padding: 8px 20px; border-radius: 4px; font-weight: 600; font-size: 13px; cursor: pointer; }
+  .radar-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .radar-table th { text-align: left; padding: 8px 12px; color: #9598a1; font-weight: 500; border-bottom: 1px solid #2a2e39; }
+  .radar-table td { padding: 8px 12px; border-bottom: 1px solid #1e222d; }
+  .radar-table tr:hover { background: #1a1e2b; cursor: pointer; }
+  .up { color: #26a69a; } .down { color: #ef5350; }
+  .score-bar-bg { background: #2a2e39; border-radius: 3px; height: 6px; width: 60px; display: inline-block; overflow: hidden; vertical-align: middle; margin-right: 6px; }
+  .score-bar-fill { background: linear-gradient(90deg, #f0a020, #ff6b35); height: 100%; }
+  .symbol-cell { font-weight: 600; color: #fff; }
+  .status-line { font-size: 12px; color: #6b6f7d; margin-bottom: 8px; }
+
+  /* Chart tab */
+  .chart-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+  .symbol-input { background: #1a1e2b; border: 1px solid #2a2e39; color: #fff; padding: 8px 12px; border-radius: 4px; font-size: 14px; width: 120px; }
+  .load-btn { background: #2962ff; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; font-size: 13px; cursor: pointer; }
+  .price-display { font-family: monospace; font-size: 18px; font-weight: 600; }
+  .ind-group { display: flex; gap: 4px; }
+  .ind-btn { background: transparent; border: 1px solid #2a2e39; color: #9598a1; padding: 5px 10px; font-size: 12px; border-radius: 4px; cursor: pointer; }
+  .ind-btn.active { background: #2962ff; border-color: #2962ff; color: #fff; }
+  .pivot-table { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; font-family: monospace; }
+  .pivot-chip { background: #1a1e2b; border-radius: 4px; padding: 6px 10px; border: 1px solid #2a2e39; }
+  .pivot-chip .label { color: #6b6f7d; margin-right: 6px; }
+  .empty-msg { color: #6b6f7d; font-size: 13px; padding: 40px; text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <button class="tab-btn active" data-tab="radar">📡 Bảng vàng</button>
+  <button class="tab-btn" data-tab="chart">📈 Biểu đồ kỹ thuật</button>
+</div>
+
+<!-- TAB 1: RADAR -->
+<div class="tab-content active" id="tab-radar">
+  <div class="filter-bar">
+    <div class="filter-group">
+      <label>Chiều biến động</label>
+      <select id="f-direction">
+        <option value="up">Tăng</option>
+        <option value="down">Giảm</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>KL ≥ bình quân (lần)</label>
+      <input type="number" id="f-vol-ratio" value="1.3" step="0.1" min="1" />
+    </div>
+    <div class="filter-group">
+      <label>Biến động giá tối thiểu (%)</label>
+      <input type="number" id="f-change-pct" value="2" step="0.5" min="0" />
+    </div>
+    <div class="filter-group">
+      <label>GTGD tối thiểu (tỷ đồng)</label>
+      <input type="number" id="f-min-value" value="3" step="0.5" min="0" />
+    </div>
+    <button class="scan-btn" id="btn-scan">⚡ Quét trong phiên</button>
+  </div>
+  <p class="status-line" id="radar-status">Bấm "Quét trong phiên" để bắt đầu.</p>
+  <table class="radar-table">
+    <thead>
+      <tr>
+        <th>#</th><th>Mã</th><th>Điểm</th><th>Giá</th><th>±%</th><th>KL/TB</th><th>GTGD (tỷ)</th>
+      </tr>
+    </thead>
+    <tbody id="radar-tbody">
+      <tr><td colspan="7" class="empty-msg">Chưa có dữ liệu.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- TAB 2: CHART -->
+<div class="tab-content" id="tab-chart">
+  <div class="chart-topbar">
+    <input type="text" class="symbol-input" id="symbol-input" placeholder="Nhập mã, vd: ACB" value="ACB" />
+    <button class="load-btn" id="btn-load-chart">Xem biểu đồ</button>
+    <span class="price-display" id="chart-price">—</span>
+    <div class="ind-group" id="ind-group">
+      <button class="ind-btn active" data-ind="ma">MA20</button>
+      <button class="ind-btn active" data-ind="ema">EMA20</button>
+      <button class="ind-btn active" data-ind="bb">Bollinger</button>
+      <button class="ind-btn active" data-ind="pivot">Pivot Points</button>
+      <button class="ind-btn active" data-ind="vol">Volume</button>
+      <button class="ind-btn active" data-ind="rsi">RSI</button>
+    </div>
+  </div>
+  <div id="chart" style="height: 420px;"></div>
+  <div id="rsi-chart" style="height: 100px; border-top: 1px solid #2a2e39;"></div>
+  <div class="pivot-table" id="pivot-table"></div>
+  <p style="font-size:11px;color:#6b6f7d;margin-top:16px;">
+    Pivot Points tính theo công thức Classic dựa trên High/Low/Close của phiên gần nhất đã đóng cửa.
+    Dữ liệu giá thật từ vnstock (nguồn VCI), có độ trễ tuỳ giới hạn API — chỉ mang tính tham khảo phân tích kỹ thuật.
+  </p>
+</div>
+
+<script>
+const API_BASE = window.RADAR_API_BASE || 'http://localhost:5000';
+
+// ===== TAB SWITCHING =====
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'chart') {
+      setTimeout(() => { chart.applyOptions({ width: document.getElementById('chart').clientWidth }); }, 50);
+    }
+  };
+});
+
+// ===== RADAR TAB =====
+async function runScan() {
+  const direction = document.getElementById('f-direction').value;
+  const volRatio = document.getElementById('f-vol-ratio').value;
+  const changePct = document.getElementById('f-change-pct').value;
+  const minValueTy = parseFloat(document.getElementById('f-min-value').value);
+  const minValue = minValueTy * 1_000_000_000;
+
+  document.getElementById('radar-status').textContent = 'Đang quét...';
+  document.getElementById('radar-tbody').innerHTML = '<tr><td colspan="7" class="empty-msg">Đang tải...</td></tr>';
+
+  try {
+    const url = `${API_BASE}/api/radar?direction=${direction}&min_vol_ratio=${volRatio}&min_change_pct=${changePct}&min_value=${minValue}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (data.error) {
+      document.getElementById('radar-status').textContent = 'Lỗi: ' + data.error;
+      return;
+    }
+    document.getElementById('radar-status').textContent =
+      `Quét ${data.total_scanned} mã · ${data.count} mã đạt điều kiện · cập nhật ${new Date(data.fetched_at).toLocaleTimeString('vi-VN')}`;
+
+    const tbody = document.getElementById('radar-tbody');
+    if (data.results.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">Không có mã nào đạt điều kiện lọc.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.results.map((r, i) => `
+      <tr onclick="openInChart('${r.symbol}')">
+        <td>${i + 1}</td>
+        <td class="symbol-cell">${r.symbol}</td>
+        <td>
+          <span class="score-bar-bg"><span class="score-bar-fill" style="width:${Math.min(r.score, 100)}%"></span></span>
+          ${r.score}
+        </td>
+        <td>${r.price.toLocaleString('vi-VN')}</td>
+        <td class="${r.change_pct >= 0 ? 'up' : 'down'}">${r.change_pct >= 0 ? '+' : ''}${r.change_pct}%</td>
+        <td>${r.vol_ratio != null ? r.vol_ratio + 'x' : '—'}</td>
+        <td>${(r.trading_value / 1_000_000_000).toFixed(1)}</td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    document.getElementById('radar-status').textContent = 'Không kết nối được server: ' + e.message;
+  }
+}
+document.getElementById('btn-scan').onclick = runScan;
+
+function openInChart(symbol) {
+  document.querySelector('.tab-btn[data-tab="chart"]').click();
+  document.getElementById('symbol-input').value = symbol;
+  loadChart();
+}
+
+// ===== CHART TAB =====
+let activeIndicators = new Set(['ma', 'ema', 'bb', 'pivot', 'vol', 'rsi']);
+
+const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+  layout: { background: { color: '#0f1117' }, textColor: '#d1d4dc' },
+  grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
+  timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2a2e39' },
+  rightPriceScale: { borderColor: '#2a2e39' },
+});
+const candleSeries = chart.addCandlestickSeries({
+  upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+});
+const volSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol_scale' });
+chart.priceScale('vol_scale').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+
+const maSeries = chart.addLineSeries({ color: '#f6c343', lineWidth: 1, priceLineVisible: false });
+const emaSeries = chart.addLineSeries({ color: '#ab47bc', lineWidth: 1, priceLineVisible: false });
+const bbUpperSeries = chart.addLineSeries({ color: '#2962ff', lineWidth: 1, priceLineVisible: false, lineStyle: LightweightCharts.LineStyle.Dashed });
+const bbLowerSeries = chart.addLineSeries({ color: '#2962ff', lineWidth: 1, priceLineVisible: false, lineStyle: LightweightCharts.LineStyle.Dashed });
+
+const pivotLines = {}; // tạo động theo từng mức R1/R2/R3/S1/S2/S3/Pivot
+const pivotColors = { pivot: '#ffffff', r1: '#ef5350', r2: '#ef5350', r3: '#ef5350', s1: '#26a69a', s2: '#26a69a', s3: '#26a69a' };
+function createPivotSeries() {
+  Object.keys(pivotColors).forEach(key => {
+    pivotLines[key] = chart.addLineSeries({
+      color: pivotColors[key], lineWidth: 1, priceLineVisible: false,
+      lineStyle: key === 'pivot' ? LightweightCharts.LineStyle.Solid : LightweightCharts.LineStyle.Dotted,
+    });
+  });
+}
+createPivotSeries();
+
+const rsiChart = LightweightCharts.createChart(document.getElementById('rsi-chart'), {
+  layout: { background: { color: '#0f1117' }, textColor: '#d1d4dc' },
+  grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
+  timeScale: { visible: false },
+  rightPriceScale: { borderColor: '#2a2e39' },
+});
+const rsiSeries = rsiChart.addLineSeries({ color: '#f6c343', lineWidth: 1 });
+
+chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+  rsiChart.timeScale().setVisibleLogicalRange(range);
+});
+
+function syncVisibility() {
+  maSeries.applyOptions({ visible: activeIndicators.has('ma') });
+  emaSeries.applyOptions({ visible: activeIndicators.has('ema') });
+  bbUpperSeries.applyOptions({ visible: activeIndicators.has('bb') });
+  bbLowerSeries.applyOptions({ visible: activeIndicators.has('bb') });
+  volSeries.applyOptions({ visible: activeIndicators.has('vol') });
+  Object.values(pivotLines).forEach(s => s.applyOptions({ visible: activeIndicators.has('pivot') }));
+  document.getElementById('rsi-chart').style.display = activeIndicators.has('rsi') ? 'block' : 'none';
+  document.getElementById('pivot-table').style.display = activeIndicators.has('pivot') ? 'flex' : 'none';
+}
+
+document.querySelectorAll('.ind-btn').forEach(btn => {
+  btn.onclick = () => {
+    const ind = btn.dataset.ind;
+    if (activeIndicators.has(ind)) { activeIndicators.delete(ind); btn.classList.remove('active'); }
+    else { activeIndicators.add(ind); btn.classList.add('active'); }
+    syncVisibility();
+  };
+});
+
+async function loadChart() {
+  const symbol = document.getElementById('symbol-input').value.trim().toUpperCase();
+  if (!symbol) return;
+  document.getElementById('chart-price').textContent = 'Đang tải...';
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/candles?symbol=${symbol}&limit=200`);
+    const data = await resp.json();
+    if (data.error) {
+      document.getElementById('chart-price').textContent = 'Lỗi: ' + data.error;
+      return;
+    }
+
+    const candleData = data.candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }));
+    candleSeries.setData(candleData);
+
+    const volData = data.candles.map(c => ({
+      time: c.time, value: c.volume, color: c.close >= c.open ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)',
+    }));
+    volSeries.setData(volData);
+
+    const times = data.candles.map(c => c.time);
+    const lineData = (arr) => times.map((t, i) => arr[i] != null ? ({ time: t, value: arr[i] }) : null).filter(Boolean);
+
+    maSeries.setData(lineData(data.indicators.ma20));
+    emaSeries.setData(lineData(data.indicators.ema20));
+    bbUpperSeries.setData(lineData(data.indicators.bb_upper));
+    bbLowerSeries.setData(lineData(data.indicators.bb_lower));
+    rsiSeries.setData(lineData(data.indicators.rsi14));
+
+    // Pivot Points: vẽ dạng đường ngang xuyên suốt khung nhìn hiện tại
+    const pp = data.indicators.pivot_points || {};
+    if (Object.keys(pp).length > 0 && times.length > 0) {
+      const firstTime = times[0];
+      const lastTime = times[times.length - 1];
+      Object.keys(pivotColors).forEach(key => {
+        if (pp[key] != null) {
+          pivotLines[key].setData([{ time: firstTime, value: pp[key] }, { time: lastTime, value: pp[key] }]);
+        } else {
+          pivotLines[key].setData([]);
+        }
+      });
+      document.getElementById('pivot-table').innerHTML = Object.entries(pp).map(([k, v]) =>
+        `<div class="pivot-chip"><span class="label">${k.toUpperCase()}</span>${v}</div>`
+      ).join('');
+    }
+
+    syncVisibility();
+
+    const last = data.candles[data.candles.length - 1];
+    const prev = data.candles[data.candles.length - 2] || last;
+    const priceEl = document.getElementById('chart-price');
+    priceEl.textContent = `${symbol}: ${last.close.toLocaleString('vi-VN')}`;
+    priceEl.className = 'price-display ' + (last.close >= prev.close ? 'up' : 'down');
+  } catch (e) {
+    document.getElementById('chart-price').textContent = 'Không kết nối được server: ' + e.message;
+  }
+}
+document.getElementById('btn-load-chart').onclick = loadChart;
+document.getElementById('symbol-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadChart(); });
+
+new ResizeObserver(() => {
+  chart.applyOptions({ width: document.getElementById('chart').clientWidth });
+  rsiChart.applyOptions({ width: document.getElementById('rsi-chart').clientWidth });
+}).observe(document.getElementById('tab-chart'));
+</script>
+</body>
+</html>
