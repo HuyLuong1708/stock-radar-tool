@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Bảng vàng & Biểu đồ kỹ thuật</title>
+<script>window.RADAR_API_BASE = 'https://stock-radar-tool.onrender.com';</script>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   * { box-sizing: border-box; }
@@ -14,7 +15,6 @@
   .tab-content { display: none; padding: 16px; }
   .tab-content.active { display: block; }
 
-  /* Radar tab */
   .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-bottom: 16px; background: #1a1e2b; padding: 12px 16px; border-radius: 8px; }
   .filter-group { display: flex; flex-direction: column; gap: 4px; }
   .filter-group label { font-size: 11px; color: #9598a1; }
@@ -30,7 +30,6 @@
   .symbol-cell { font-weight: 600; color: #fff; }
   .status-line { font-size: 12px; color: #6b6f7d; margin-bottom: 8px; }
 
-  /* Chart tab */
   .chart-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
   .symbol-input { background: #1a1e2b; border: 1px solid #2a2e39; color: #fff; padding: 8px 12px; border-radius: 4px; font-size: 14px; width: 120px; }
   .load-btn { background: #2962ff; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; font-size: 13px; cursor: pointer; }
@@ -42,6 +41,7 @@
   .pivot-chip { background: #1a1e2b; border-radius: 4px; padding: 6px 10px; border: 1px solid #2a2e39; }
   .pivot-chip .label { color: #6b6f7d; margin-right: 6px; }
   .empty-msg { color: #6b6f7d; font-size: 13px; padding: 40px; text-align: center; }
+  #chart, #rsi-chart { width: 100%; }
 </style>
 </head>
 <body>
@@ -51,7 +51,6 @@
   <button class="tab-btn" data-tab="chart">📈 Biểu đồ kỹ thuật</button>
 </div>
 
-<!-- TAB 1: RADAR -->
 <div class="tab-content active" id="tab-radar">
   <div class="filter-bar">
     <div class="filter-group">
@@ -78,9 +77,7 @@
   <p class="status-line" id="radar-status">Bấm "Quét trong phiên" để bắt đầu.</p>
   <table class="radar-table">
     <thead>
-      <tr>
-        <th>#</th><th>Mã</th><th>Điểm</th><th>Giá</th><th>±%</th><th>KL/TB</th><th>GTGD (tỷ)</th>
-      </tr>
+      <tr><th>#</th><th>Mã</th><th>Điểm</th><th>Giá</th><th>±%</th><th>KL/TB</th><th>GTGD (tỷ)</th></tr>
     </thead>
     <tbody id="radar-tbody">
       <tr><td colspan="7" class="empty-msg">Chưa có dữ liệu.</td></tr>
@@ -88,7 +85,6 @@
   </table>
 </div>
 
-<!-- TAB 2: CHART -->
 <div class="tab-content" id="tab-chart">
   <div class="chart-topbar">
     <input type="text" class="symbol-input" id="symbol-input" placeholder="Nhập mã, vd: ACB" value="ACB" />
@@ -111,11 +107,10 @@
     Dữ liệu giá thật từ vnstock (nguồn VCI), có độ trễ tuỳ giới hạn API — chỉ mang tính tham khảo phân tích kỹ thuật.
   </p>
 </div>
-<script>window.RADAR_API_BASE = 'https://stock-radar-tool.onrender.com';</script>
+
 <script>
 const API_BASE = window.RADAR_API_BASE || 'http://localhost:5000';
 
-// ===== TAB SWITCHING =====
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.onclick = () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -123,12 +118,11 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'chart') {
-      setTimeout(() => { chart.applyOptions({ width: document.getElementById('chart').clientWidth }); }, 50);
+      ensureChartInitialized();
     }
   };
 });
 
-// ===== RADAR TAB =====
 async function runScan() {
   const direction = document.getElementById('f-direction').value;
   const volRatio = document.getElementById('f-vol-ratio').value;
@@ -159,10 +153,7 @@ async function runScan() {
       <tr onclick="openInChart('${r.symbol}')">
         <td>${i + 1}</td>
         <td class="symbol-cell">${r.symbol}</td>
-        <td>
-          <span class="score-bar-bg"><span class="score-bar-fill" style="width:${Math.min(r.score, 100)}%"></span></span>
-          ${r.score}
-        </td>
+        <td><span class="score-bar-bg"><span class="score-bar-fill" style="width:${Math.min(r.score, 100)}%"></span></span>${r.score}</td>
         <td>${r.price.toLocaleString('vi-VN')}</td>
         <td class="${r.change_pct >= 0 ? 'up' : 'down'}">${r.change_pct >= 0 ? '+' : ''}${r.change_pct}%</td>
         <td>${r.vol_ratio != null ? r.vol_ratio + 'x' : '—'}</td>
@@ -178,52 +169,91 @@ document.getElementById('btn-scan').onclick = runScan;
 function openInChart(symbol) {
   document.querySelector('.tab-btn[data-tab="chart"]').click();
   document.getElementById('symbol-input').value = symbol;
-  loadChart();
+  setTimeout(loadChart, 50);
 }
 
-// ===== CHART TAB =====
+let chart, rsiChart, candleSeries, volSeries, maSeries, emaSeries, bbUpperSeries, bbLowerSeries, rsiSeries;
+let pivotLines = {};
+let chartInitialized = false;
 let activeIndicators = new Set(['ma', 'ema', 'bb', 'pivot', 'vol', 'rsi']);
+let pendingChartData = null;
 
-const chart = LightweightCharts.createChart(document.getElementById('chart'), {
-  layout: { background: { color: '#0f1117' }, textColor: '#d1d4dc' },
-  grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
-  timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2a2e39' },
-  rightPriceScale: { borderColor: '#2a2e39' },
-});
-const candleSeries = chart.addCandlestickSeries({
-  upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350',
-});
-const volSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol_scale' });
-chart.priceScale('vol_scale').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-
-const maSeries = chart.addLineSeries({ color: '#f6c343', lineWidth: 1, priceLineVisible: false });
-const emaSeries = chart.addLineSeries({ color: '#ab47bc', lineWidth: 1, priceLineVisible: false });
-const bbUpperSeries = chart.addLineSeries({ color: '#2962ff', lineWidth: 1, priceLineVisible: false, lineStyle: LightweightCharts.LineStyle.Dashed });
-const bbLowerSeries = chart.addLineSeries({ color: '#2962ff', lineWidth: 1, priceLineVisible: false, lineStyle: LightweightCharts.LineStyle.Dashed });
-
-const pivotLines = {}; // tạo động theo từng mức R1/R2/R3/S1/S2/S3/Pivot
 const pivotColors = { pivot: '#ffffff', r1: '#ef5350', r2: '#ef5350', r3: '#ef5350', s1: '#26a69a', s2: '#26a69a', s3: '#26a69a' };
-function createPivotSeries() {
+
+function ensureChartInitialized() {
+  if (chartInitialized) {
+    requestAnimationFrame(() => {
+      chart.applyOptions({ width: document.getElementById('chart').clientWidth });
+      rsiChart.applyOptions({ width: document.getElementById('rsi-chart').clientWidth });
+      chart.timeScale().fitContent();
+    });
+    return;
+  }
+
+  chart = LightweightCharts.createChart(document.getElementById('chart'), {
+    layout: { background: { color: '#0f1117' }, textColor: '#d1d4dc' },
+    grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
+    timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2a2e39' },
+    rightPriceScale: { borderColor: '#2a2e39' },
+    width: document.getElementById('chart').clientWidth,
+    height: 420,
+  });
+  candleSeries = chart.addCandlestickSeries({
+    upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+  });
+  volSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol_scale' });
+  chart.priceScale('vol_scale').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+
+  maSeries = chart.addLineSeries({ color: '#f6c343', lineWidth: 1, priceLineVisible: false });
+  emaSeries = chart.addLineSeries({ color: '#ab47bc', lineWidth: 1, priceLineVisible: false });
+  bbUpperSeries = chart.addLineSeries({ color: '#2962ff', lineWidth: 1, priceLineVisible: false, lineStyle: LightweightCharts.LineStyle.Dashed });
+  bbLowerSeries = chart.addLineSeries({ color: '#2962ff', lineWidth: 1, priceLineVisible: false, lineStyle: LightweightCharts.LineStyle.Dashed });
+
   Object.keys(pivotColors).forEach(key => {
     pivotLines[key] = chart.addLineSeries({
       color: pivotColors[key], lineWidth: 1, priceLineVisible: false,
       lineStyle: key === 'pivot' ? LightweightCharts.LineStyle.Solid : LightweightCharts.LineStyle.Dotted,
     });
   });
+
+  rsiChart = LightweightCharts.createChart(document.getElementById('rsi-chart'), {
+    layout: { background: { color: '#0f1117' }, textColor: '#d1d4dc' },
+    grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
+    timeScale: { visible: false },
+    rightPriceScale: { borderColor: '#2a2e39' },
+    width: document.getElementById('rsi-chart').clientWidth,
+    height: 100,
+  });
+  rsiSeries = rsiChart.addLineSeries({ color: '#f6c343', lineWidth: 1 });
+
+  chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+    if (range) rsiChart.timeScale().setVisibleLogicalRange(range);
+  });
+
+  new ResizeObserver(() => {
+    if (!chartInitialized) return;
+    chart.applyOptions({ width: document.getElementById('chart').clientWidth });
+    rsiChart.applyOptions({ width: document.getElementById('rsi-chart').clientWidth });
+  }).observe(document.getElementById('tab-chart'));
+
+  document.querySelectorAll('.ind-btn').forEach(btn => {
+    btn.onclick = () => {
+      const ind = btn.dataset.ind;
+      if (activeIndicators.has(ind)) { activeIndicators.delete(ind); btn.classList.remove('active'); }
+      else { activeIndicators.add(ind); btn.classList.add('active'); }
+      syncVisibility();
+    };
+  });
+
+  chartInitialized = true;
+
+  if (pendingChartData) {
+    renderChartData(pendingChartData.data, pendingChartData.symbol);
+    pendingChartData = null;
+  } else {
+    requestAnimationFrame(() => chart.timeScale().fitContent());
+  }
 }
-createPivotSeries();
-
-const rsiChart = LightweightCharts.createChart(document.getElementById('rsi-chart'), {
-  layout: { background: { color: '#0f1117' }, textColor: '#d1d4dc' },
-  grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
-  timeScale: { visible: false },
-  rightPriceScale: { borderColor: '#2a2e39' },
-});
-const rsiSeries = rsiChart.addLineSeries({ color: '#f6c343', lineWidth: 1 });
-
-chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-  rsiChart.timeScale().setVisibleLogicalRange(range);
-});
 
 function syncVisibility() {
   maSeries.applyOptions({ visible: activeIndicators.has('ma') });
@@ -236,14 +266,49 @@ function syncVisibility() {
   document.getElementById('pivot-table').style.display = activeIndicators.has('pivot') ? 'flex' : 'none';
 }
 
-document.querySelectorAll('.ind-btn').forEach(btn => {
-  btn.onclick = () => {
-    const ind = btn.dataset.ind;
-    if (activeIndicators.has(ind)) { activeIndicators.delete(ind); btn.classList.remove('active'); }
-    else { activeIndicators.add(ind); btn.classList.add('active'); }
-    syncVisibility();
-  };
-});
+function renderChartData(data, symbol) {
+  const candleData = data.candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }));
+  candleSeries.setData(candleData);
+
+  const volData = data.candles.map(c => ({
+    time: c.time, value: c.volume, color: c.close >= c.open ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)',
+  }));
+  volSeries.setData(volData);
+
+  const times = data.candles.map(c => c.time);
+  const lineData = (arr) => times.map((t, i) => arr[i] != null ? ({ time: t, value: arr[i] }) : null).filter(Boolean);
+
+  maSeries.setData(lineData(data.indicators.ma20));
+  emaSeries.setData(lineData(data.indicators.ema20));
+  bbUpperSeries.setData(lineData(data.indicators.bb_upper));
+  bbLowerSeries.setData(lineData(data.indicators.bb_lower));
+  rsiSeries.setData(lineData(data.indicators.rsi14));
+
+  const pp = data.indicators.pivot_points || {};
+  if (Object.keys(pp).length > 0 && times.length > 0) {
+    const firstTime = times[0];
+    const lastTime = times[times.length - 1];
+    Object.keys(pivotColors).forEach(key => {
+      if (pp[key] != null) {
+        pivotLines[key].setData([{ time: firstTime, value: pp[key] }, { time: lastTime, value: pp[key] }]);
+      } else {
+        pivotLines[key].setData([]);
+      }
+    });
+    document.getElementById('pivot-table').innerHTML = Object.entries(pp).map(([k, v]) =>
+      `<div class="pivot-chip"><span class="label">${k.toUpperCase()}</span>${v}</div>`
+    ).join('');
+  }
+
+  syncVisibility();
+  chart.timeScale().fitContent();
+
+  const last = data.candles[data.candles.length - 1];
+  const prev = data.candles[data.candles.length - 2] || last;
+  const priceEl = document.getElementById('chart-price');
+  priceEl.textContent = `${symbol}: ${last.close.toLocaleString('vi-VN')}`;
+  priceEl.className = 'price-display ' + (last.close >= prev.close ? 'up' : 'down');
+}
 
 async function loadChart() {
   const symbol = document.getElementById('symbol-input').value.trim().toUpperCase();
@@ -258,58 +323,18 @@ async function loadChart() {
       return;
     }
 
-    const candleData = data.candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }));
-    candleSeries.setData(candleData);
-
-    const volData = data.candles.map(c => ({
-      time: c.time, value: c.volume, color: c.close >= c.open ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)',
-    }));
-    volSeries.setData(volData);
-
-    const times = data.candles.map(c => c.time);
-    const lineData = (arr) => times.map((t, i) => arr[i] != null ? ({ time: t, value: arr[i] }) : null).filter(Boolean);
-
-    maSeries.setData(lineData(data.indicators.ma20));
-    emaSeries.setData(lineData(data.indicators.ema20));
-    bbUpperSeries.setData(lineData(data.indicators.bb_upper));
-    bbLowerSeries.setData(lineData(data.indicators.bb_lower));
-    rsiSeries.setData(lineData(data.indicators.rsi14));
-
-    // Pivot Points: vẽ dạng đường ngang xuyên suốt khung nhìn hiện tại
-    const pp = data.indicators.pivot_points || {};
-    if (Object.keys(pp).length > 0 && times.length > 0) {
-      const firstTime = times[0];
-      const lastTime = times[times.length - 1];
-      Object.keys(pivotColors).forEach(key => {
-        if (pp[key] != null) {
-          pivotLines[key].setData([{ time: firstTime, value: pp[key] }, { time: lastTime, value: pp[key] }]);
-        } else {
-          pivotLines[key].setData([]);
-        }
-      });
-      document.getElementById('pivot-table').innerHTML = Object.entries(pp).map(([k, v]) =>
-        `<div class="pivot-chip"><span class="label">${k.toUpperCase()}</span>${v}</div>`
-      ).join('');
+    if (!chartInitialized) {
+      pendingChartData = { data, symbol };
+      ensureChartInitialized();
+    } else {
+      renderChartData(data, symbol);
     }
-
-    syncVisibility();
-
-    const last = data.candles[data.candles.length - 1];
-    const prev = data.candles[data.candles.length - 2] || last;
-    const priceEl = document.getElementById('chart-price');
-    priceEl.textContent = `${symbol}: ${last.close.toLocaleString('vi-VN')}`;
-    priceEl.className = 'price-display ' + (last.close >= prev.close ? 'up' : 'down');
   } catch (e) {
     document.getElementById('chart-price').textContent = 'Không kết nối được server: ' + e.message;
   }
 }
 document.getElementById('btn-load-chart').onclick = loadChart;
 document.getElementById('symbol-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadChart(); });
-
-new ResizeObserver(() => {
-  chart.applyOptions({ width: document.getElementById('chart').clientWidth });
-  rsiChart.applyOptions({ width: document.getElementById('rsi-chart').clientWidth });
-}).observe(document.getElementById('tab-chart'));
 </script>
 </body>
 </html>
