@@ -4,7 +4,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Bảng vàng & Biểu đồ kỹ thuật</title>
-<script>window.RADAR_API_BASE = 'https://stock-radar-tool.onrender.com';</script>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   * { box-sizing: border-box; }
@@ -42,6 +41,19 @@
   .pivot-chip .label { color: #6b6f7d; margin-right: 6px; }
   .empty-msg { color: #6b6f7d; font-size: 13px; padding: 40px; text-align: center; }
   #chart, #rsi-chart { width: 100%; }
+
+  .tt-btn { background: #7c3aed; color: #fff; border: none; padding: 8px 14px; border-radius: 4px; font-size: 13px; cursor: pointer; }
+  .tt-panel { background: #1a1e2b; border-radius: 8px; padding: 14px 16px; margin-top: 16px; display: none; }
+  .tt-panel.show { display: block; }
+  .tt-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .tt-score { font-size: 18px; font-weight: 700; }
+  .tt-score.good { color: #26a69a; } .tt-score.bad { color: #ef5350; } .tt-score.mid { color: #f0a020; }
+  .tt-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid #22262f; font-size: 13px; }
+  .tt-row:last-child { border-bottom: none; }
+  .tt-icon { width: 18px; flex-shrink: 0; text-align: center; }
+  .tt-icon.pass { color: #26a69a; } .tt-icon.fail { color: #ef5350; } .tt-icon.na { color: #6b6f7d; }
+  .tt-label { font-weight: 500; }
+  .tt-detail { color: #9598a1; font-size: 12px; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -89,6 +101,7 @@
   <div class="chart-topbar">
     <input type="text" class="symbol-input" id="symbol-input" placeholder="Nhập mã, vd: ACB" value="ACB" />
     <button class="load-btn" id="btn-load-chart">Xem biểu đồ</button>
+    <button class="tt-btn" id="btn-trend-template">🏆 Trend Template</button>
     <span class="price-display" id="chart-price">—</span>
     <div class="ind-group" id="ind-group">
       <button class="ind-btn active" data-ind="ma">MA20</button>
@@ -102,14 +115,27 @@
   <div id="chart" style="height: 420px;"></div>
   <div id="rsi-chart" style="height: 100px; border-top: 1px solid #2a2e39;"></div>
   <div class="pivot-table" id="pivot-table"></div>
+  <div class="tt-panel" id="tt-panel">
+    <div class="tt-header">
+      <span>Trend Template (Mark Minervini)</span>
+      <span class="tt-score" id="tt-score">—</span>
+    </div>
+    <div id="tt-body"></div>
+    <p style="font-size:11px;color:#6b6f7d;margin-top:10px;">
+      Bộ 8 tiêu chí đánh giá cổ phiếu có đang trong giai đoạn tăng trưởng mạnh (Stage 2) hay không, theo
+      phương pháp phổ biến trong sách "Trade Like a Stock Market Wizard". Đây là công cụ tham khảo tự xây dựng,
+      không phải phần mềm chính thức của tác giả. Tiêu chí RS Rating (so với thị trường chung) chưa được triển khai.
+    </p>
+  </div>
   <p style="font-size:11px;color:#6b6f7d;margin-top:16px;">
     Pivot Points tính theo công thức Classic dựa trên High/Low/Close của phiên gần nhất đã đóng cửa.
     Dữ liệu giá thật từ vnstock (nguồn VCI), có độ trễ tuỳ giới hạn API — chỉ mang tính tham khảo phân tích kỹ thuật.
   </p>
 </div>
 
+<script>window.RADAR_API_BASE = window.RADAR_API_BASE || 'https://stock-radar-tool.onrender.com';</script>
 <script>
-const API_BASE = window.RADAR_API_BASE || 'http://localhost:5000';
+const API_BASE = window.RADAR_API_BASE;
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.onclick = () => {
@@ -335,6 +361,51 @@ async function loadChart() {
 }
 document.getElementById('btn-load-chart').onclick = loadChart;
 document.getElementById('symbol-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadChart(); });
+
+async function loadTrendTemplate() {
+  const symbol = document.getElementById('symbol-input').value.trim().toUpperCase();
+  if (!symbol) return;
+
+  const panel = document.getElementById('tt-panel');
+  const scoreEl = document.getElementById('tt-score');
+  const bodyEl = document.getElementById('tt-body');
+
+  panel.classList.add('show');
+  scoreEl.textContent = '...';
+  scoreEl.className = 'tt-score';
+  bodyEl.innerHTML = '<p class="empty-msg">Đang tải...</p>';
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/trend_template?symbol=${symbol}`);
+    const data = await resp.json();
+
+    if (data.error) {
+      scoreEl.textContent = '—';
+      bodyEl.innerHTML = `<p class="empty-msg">${data.error}</p>`;
+      return;
+    }
+
+    const ratio = data.passed / data.total_evaluable;
+    scoreEl.textContent = `${data.passed}/${data.total_evaluable}`;
+    scoreEl.className = 'tt-score ' + (ratio >= 0.85 ? 'good' : ratio >= 0.5 ? 'mid' : 'bad');
+
+    bodyEl.innerHTML = data.criteria.map(c => {
+      const iconClass = c.pass === true ? 'pass' : c.pass === false ? 'fail' : 'na';
+      const icon = c.pass === true ? '✓' : c.pass === false ? '✗' : '—';
+      return `<div class="tt-row">
+        <span class="tt-icon ${iconClass}">${icon}</span>
+        <div>
+          <div class="tt-label">${c.id}. ${c.label}</div>
+          <div class="tt-detail">${c.detail}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    scoreEl.textContent = '—';
+    bodyEl.innerHTML = `<p class="empty-msg">Không kết nối được server: ${e.message}</p>`;
+  }
+}
+document.getElementById('btn-trend-template').onclick = loadTrendTemplate;
 </script>
 </body>
 </html>
